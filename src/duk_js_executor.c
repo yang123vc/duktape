@@ -2828,7 +2828,7 @@ DUK_INTERNAL void duk_js_execute_bytecode(duk_hthread *exec_thr) {
 			                     (long) a,
 			                     (duk_tval *) DUK__REGCONSTP(b),
 			                     (duk_tval *) DUK__REGCONSTP(c)));
-			rc = duk_hobject_getprop(thr, tv_obj, tv_key);  /* -> [val] */
+			rc = duk_hobject_getprop(thr, tv_obj, tv_key, 0 /*flags*/);  /* -> [val] */
 			DUK_UNREF(rc);  /* ignore */
 			DUK_DDD(DUK_DDDPRINT("GETPROP --> %!T",
 			                     (duk_tval *) duk_get_tval(ctx, -1)));
@@ -2863,7 +2863,9 @@ DUK_INTERNAL void duk_js_execute_bytecode(duk_hthread *exec_thr) {
 			                     (duk_tval *) DUK__REGP(a),
 			                     (duk_tval *) DUK__REGCONSTP(b),
 			                     (duk_tval *) DUK__REGCONSTP(c)));
-			rc = duk_hobject_putprop(thr, tv_obj, tv_key, tv_val, DUK__STRICT());
+			DUK_ASSERT(DUK_PROP_FLAG_THROW == 1);  /* DUK__STRICT() -> throw flag */
+			DUK_ASSERT(DUK__STRICT() == 0 || DUK__STRICT() == 1);
+			rc = duk_hobject_putprop(thr, tv_obj, tv_key, tv_val, DUK__STRICT() /*flags*/);
 			DUK_UNREF(rc);  /* ignore */
 			DUK_DDD(DUK_DDDPRINT("PUTPROP --> obj=%!T, key=%!T, val=%!T",
 			                     (duk_tval *) DUK__REGP(a),
@@ -2892,7 +2894,9 @@ DUK_INTERNAL void duk_js_execute_bytecode(duk_hthread *exec_thr) {
 
 			tv_obj = DUK__REGP(b);
 			tv_key = DUK__REGCONSTP(c);
-			rc = duk_hobject_delprop(thr, tv_obj, tv_key, DUK__STRICT());
+			DUK_ASSERT(DUK_PROP_FLAG_THROW == 1);  /* DUK__STRICT() -> throw flag */
+			DUK_ASSERT(DUK__STRICT() == 0 || DUK__STRICT() == 1);
+			rc = duk_hobject_delprop(thr, tv_obj, tv_key, DUK__STRICT() /*flags*/);
 			tv_obj = NULL;  /* invalidated */
 			tv_key = NULL;  /* invalidated */
 
@@ -2921,7 +2925,7 @@ DUK_INTERNAL void duk_js_execute_bytecode(duk_hthread *exec_thr) {
 
 			tv_obj = DUK__REGP(b);
 			tv_key = DUK__REGCONSTP(c);
-			rc = duk_hobject_getprop(thr, tv_obj, tv_key);  /* -> [val] */
+			rc = duk_hobject_getprop(thr, tv_obj, tv_key, 0 /*flags*/);  /* -> [val] */
 			DUK_UNREF(rc);  /* unused */
 			tv_obj = NULL;  /* invalidated */
 			tv_key = NULL;  /* invalidated */
@@ -3661,7 +3665,7 @@ DUK_INTERNAL void duk_js_execute_bytecode(duk_hthread *exec_thr) {
 
 			tv_obj = DUK__REGCONSTP(b);
 			tv_key = DUK__REGCONSTP(c);
-			rc = duk_hobject_getprop(thr, tv_obj, tv_key);  /* -> [val] */
+			rc = duk_hobject_getprop(thr, tv_obj, tv_key, 0 /*flags*/);  /* -> [val] */
 			DUK_UNREF(rc);  /* ignore */
 			tv_obj = NULL;  /* invalidated */
 			tv_key = NULL;  /* invalidated */
@@ -3679,7 +3683,9 @@ DUK_INTERNAL void duk_js_execute_bytecode(duk_hthread *exec_thr) {
 			DUK_ASSERT(tv_val != NULL);
 			tv_obj = DUK__REGCONSTP(b);
 			tv_key = DUK__REGCONSTP(c);
-			rc = duk_hobject_putprop(thr, tv_obj, tv_key, tv_val, DUK__STRICT());
+			DUK_ASSERT(DUK_PROP_FLAG_THROW == 1);  /* DUK__STRICT() -> throw flag */
+			DUK_ASSERT(DUK__STRICT() == 0 || DUK__STRICT() == 1);
+			rc = duk_hobject_putprop(thr, tv_obj, tv_key, tv_val, DUK__STRICT() /*flags*/);
 			DUK_UNREF(rc);  /* ignore */
 			tv_obj = NULL;  /* invalidated */
 			tv_key = NULL;  /* invalidated */

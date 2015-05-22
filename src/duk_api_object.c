@@ -27,7 +27,7 @@ DUK_EXTERNAL duk_bool_t duk_get_prop(duk_context *ctx, duk_idx_t obj_index) {
 	tv_obj = duk_require_tval(ctx, obj_index);
 	tv_key = duk_require_tval(ctx, -1);
 
-	rc = duk_hobject_getprop(thr, tv_obj, tv_key);
+	rc = duk_hobject_getprop(thr, tv_obj, tv_key, DUK_PROP_FLAG_INTERNAL /*flags*/);
 	DUK_ASSERT(rc == 0 || rc == 1);
 	/* a value is left on stack regardless of rc */
 
@@ -86,7 +86,7 @@ DUK_EXTERNAL duk_bool_t duk_put_prop(duk_context *ctx, duk_idx_t obj_index) {
 	duk_tval *tv_obj;
 	duk_tval *tv_key;
 	duk_tval *tv_val;
-	duk_small_int_t throw_flag;
+	duk_small_uint_t flags;
 	duk_bool_t rc;
 
 	DUK_ASSERT_CTX_VALID(ctx);
@@ -99,9 +99,11 @@ DUK_EXTERNAL duk_bool_t duk_put_prop(duk_context *ctx, duk_idx_t obj_index) {
 	tv_obj = duk_require_tval(ctx, obj_index);
 	tv_key = duk_require_tval(ctx, -2);
 	tv_val = duk_require_tval(ctx, -1);
-	throw_flag = duk_is_strict_call(ctx);
+	DUK_ASSERT(DUK_PROP_FLAG_THROW == 1);  /* duk_is_strict_call() -> throw flag */
+	DUK_ASSERT(duk_is_strict_call(ctx) == 0 || duk_is_strict_call(ctx) == 1);
+	flags = duk_is_strict_call(ctx) | DUK_PROP_FLAG_INTERNAL;
 
-	rc = duk_hobject_putprop(thr, tv_obj, tv_key, tv_val, throw_flag);
+	rc = duk_hobject_putprop(thr, tv_obj, tv_key, tv_val, flags);
 	DUK_ASSERT(rc == 0 || rc == 1);
 
 	duk_pop_2(ctx);  /* remove key and value */
@@ -144,7 +146,7 @@ DUK_EXTERNAL duk_bool_t duk_del_prop(duk_context *ctx, duk_idx_t obj_index) {
 	duk_hthread *thr = (duk_hthread *) ctx;
 	duk_tval *tv_obj;
 	duk_tval *tv_key;
-	duk_small_int_t throw_flag;
+	duk_small_uint_t flags;
 	duk_bool_t rc;
 
 	DUK_ASSERT_CTX_VALID(ctx);
@@ -155,9 +157,11 @@ DUK_EXTERNAL duk_bool_t duk_del_prop(duk_context *ctx, duk_idx_t obj_index) {
 
 	tv_obj = duk_require_tval(ctx, obj_index);
 	tv_key = duk_require_tval(ctx, -1);
-	throw_flag = duk_is_strict_call(ctx);
+	DUK_ASSERT(DUK_PROP_FLAG_THROW == 1);  /* duk_is_strict_call() -> throw flag */
+	DUK_ASSERT(duk_is_strict_call(ctx) == 0 || duk_is_strict_call(ctx) == 1);
+	flags = duk_is_strict_call(ctx) | DUK_PROP_FLAG_INTERNAL;
 
-	rc = duk_hobject_delprop(thr, tv_obj, tv_key, throw_flag);
+	rc = duk_hobject_delprop(thr, tv_obj, tv_key, flags);
 	DUK_ASSERT(rc == 0 || rc == 1);
 
 	duk_pop(ctx);  /* remove key */
@@ -208,7 +212,7 @@ DUK_EXTERNAL duk_bool_t duk_has_prop(duk_context *ctx, duk_idx_t obj_index) {
 	tv_obj = duk_require_tval(ctx, obj_index);
 	tv_key = duk_require_tval(ctx, -1);
 
-	rc = duk_hobject_hasprop(thr, tv_obj, tv_key);
+	rc = duk_hobject_hasprop(thr, tv_obj, tv_key, DUK_PROP_FLAG_INTERNAL /*flags*/);
 	DUK_ASSERT(rc == 0 || rc == 1);
 
 	duk_pop(ctx);  /* remove key */

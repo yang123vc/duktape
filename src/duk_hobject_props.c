@@ -109,7 +109,7 @@ DUK_LOCAL duk_uint32_t duk__tval_number_to_arr_idx(duk_tval *tv) {
 	dbl = DUK_TVAL_GET_NUMBER(tv);
 	idx = (duk_uint32_t) dbl;
 	if ((duk_double_t) idx == dbl) {
-	        /* Is whole and within 32 bit range.  If the value happens to be 0xFFFFFFFF,
+		/* Is whole and within 32 bit range.  If the value happens to be 0xFFFFFFFF,
 		 * it's not a valid array index but will then match DUK__NO_ARRAY_INDEX.
 		 */
 		return idx;
@@ -1609,6 +1609,23 @@ DUK_LOCAL duk_bool_t duk__get_own_property_desc_raw(duk_hthread *thr, duk_hobjec
 	if (out_desc->e_idx >= 0) {
 		duk_int_t e_idx = out_desc->e_idx;
 		out_desc->flags = DUK_HOBJECT_E_GET_FLAGS(thr->heap, obj, e_idx);
+
+#if 0
+		/* FIXME: this would impact all prototype lookup steps but
+		 * fixes Object.defineProperty() etc automatically.
+		 */
+		if (DUK_HSTRING_HAS_INTERNAL(key)) {
+			DUK_DDD(DUK_DDDPRINT("-> internal property, pretend 'undefined' and protected"));
+
+			if (flags & DUK__DESC_FLAG_PUSH_VALUE) {
+				duk_push_undefined(ctx);
+			}
+			out_desc->flags = DUK_PROPDESC_FLAG_ENUMERABLE |  /* E5 Section 15.5.5.2 */
+			                  DUK_PROPDESC_FLAG_VIRTUAL;
+			return 1;
+		}
+#endif
+
 		if (out_desc->flags & DUK_PROPDESC_FLAG_ACCESSOR) {
 			DUK_DDD(DUK_DDDPRINT("-> found accessor property in entry part"));
 			out_desc->get = DUK_HOBJECT_E_GET_VALUE_GETTER(thr->heap, obj, e_idx);
@@ -2177,7 +2194,7 @@ DUK_LOCAL duk_bool_t duk__putprop_fastpath_bufobj_tval(duk_hthread *thr, duk_hob
  *  GETPROP: Ecmascript property read.
  */
 
-DUK_INTERNAL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key) {
+DUK_INTERNAL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key, duk_small_uint_t flags) {
 	duk_context *ctx = (duk_context *) thr;
 	duk_tval tv_obj_copy;
 	duk_tval tv_key_copy;
@@ -2186,6 +2203,9 @@ DUK_INTERNAL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, 
 	duk_uint32_t arr_idx = DUK__NO_ARRAY_INDEX;
 	duk_propdesc desc;
 	duk_uint_t sanity;
+	duk_bool_t internal_flag;
+
+	internal_flag = (flags & DUK_PROP_FLAG_INTERNAL);
 
 	DUK_DDD(DUK_DDDPRINT("getprop: thr=%p, obj=%p, key=%p (obj -> %!T, key -> %!T)",
 	                     (void *) thr, (void *) tv_obj, (void *) tv_key,
@@ -2334,6 +2354,8 @@ DUK_INTERNAL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, 
 				 */
 				arr_idx = duk__push_tval_to_hstring_arr_idx(ctx, tv_key, &key);
 				DUK_ASSERT(key != NULL);
+
+				/* FIXME: internal property check */
 
 				if (duk__get_own_property_desc_raw(thr, h_target, key, arr_idx, &desc, DUK__DESC_FLAG_PUSH_VALUE)) {
 					duk_tval *tv_hook = duk_require_tval(ctx, -3);  /* value from hook */
@@ -2534,6 +2556,12 @@ DUK_INTERNAL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, 
 	DUK_ASSERT(curr != NULL);
 	DUK_ASSERT(key != NULL);
 
+	/* FIXME: this applies to the "front end" of a property lookup */
+	if (DUK_HSTRING_HAS_INTERNAL(key) && !internal_flag) {
+		DUK_DDD(DUK_DDDPRINT("-> internal property, pretend 'undefined' and protected"));
+		goto not_found;
+	}
+
 	sanity = DUK_HOBJECT_PROTOTYPE_CHAIN_SANITY;
 	do {
 		if (!duk__get_own_property_desc_raw(thr, curr, key, arr_idx, &desc, DUK__DESC_FLAG_PUSH_VALUE)) {
@@ -2587,6 +2615,7 @@ DUK_INTERNAL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, 
 	 *  Not found
 	 */
 
+ not_found:
 	duk_to_undefined(ctx, -1);  /* [key] -> [undefined] (default value) */
 
 	DUK_DDD(DUK_DDDPRINT("-> %!T (not found)", (duk_tval *) duk_get_tval(ctx, -1)));
@@ -2667,7 +2696,7 @@ DUK_INTERNAL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, 
  *  the target object.
  */
 
-DUK_INTERNAL duk_bool_t duk_hobject_hasprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key) {
+DUK_INTERNAL duk_bool_t duk_hobject_hasprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key, duk_small_uint_t flags) {
 	duk_context *ctx = (duk_context *) thr;
 	duk_tval tv_key_copy;
 	duk_hobject *obj;
@@ -2675,6 +2704,9 @@ DUK_INTERNAL duk_bool_t duk_hobject_hasprop(duk_hthread *thr, duk_tval *tv_obj, 
 	duk_uint32_t arr_idx;
 	duk_bool_t rc;
 	duk_propdesc desc;
+	duk_bool_t internal_flag;
+
+	internal_flag = (flags & DUK_PROP_FLAG_INTERNAL);
 
 	DUK_DDD(DUK_DDDPRINT("hasprop: thr=%p, obj=%p, key=%p (obj -> %!T, key -> %!T)",
 	                     (void *) thr, (void *) tv_obj, (void *) tv_key,
@@ -2733,6 +2765,13 @@ DUK_INTERNAL duk_bool_t duk_hobject_hasprop(duk_hthread *thr, duk_tval *tv_obj, 
 	DUK_ASSERT(key != NULL);
 	DUK_ASSERT(obj != NULL);
 	DUK_UNREF(arr_idx);
+
+	/* FIXME: this applies to the "front end" of a property lookup */
+	if (DUK_HSTRING_HAS_INTERNAL(key) && !internal_flag) {
+		DUK_DDD(DUK_DDDPRINT("-> internal property, pretend 'undefined' and protected"));
+		rc = 0;
+		goto pop_and_return;
+	}
 
 #if defined(DUK_USE_ES6_PROXY)
 	if (DUK_UNLIKELY(DUK_HOBJECT_HAS_EXOTIC_PROXYOBJ(obj))) {
@@ -3060,7 +3099,7 @@ duk_bool_t duk__handle_put_array_length_smaller(duk_hthread *thr,
 			 *  The delete always succeeds: key has no exotic behavior, property
 			 *  is configurable, and no resize occurs.
 			 */
-			rc = duk_hobject_delprop_raw(thr, obj, key, force_flag ? DUK_DELPROP_FLAG_FORCE : 0);
+			rc = duk_hobject_delprop_raw(thr, obj, key, force_flag ? DUK_PROP_FLAG_FORCE : 0);
 			DUK_UNREF(rc);
 			DUK_ASSERT(rc != 0);
 		}
@@ -3204,7 +3243,7 @@ DUK_LOCAL duk_bool_t duk__handle_put_array_length(duk_hthread *thr, duk_hobject 
  *      (We currently make a copy of all of the input values to avoid issues.)
  */
 
-DUK_INTERNAL duk_bool_t duk_hobject_putprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key, duk_tval *tv_val, duk_bool_t throw_flag) {
+DUK_INTERNAL duk_bool_t duk_hobject_putprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key, duk_tval *tv_val, duk_small_uint_t flags) {
 	duk_context *ctx = (duk_context *) thr;
 	duk_tval tv_obj_copy;
 	duk_tval tv_key_copy;
@@ -3219,11 +3258,16 @@ DUK_INTERNAL duk_bool_t duk_hobject_putprop(duk_hthread *thr, duk_tval *tv_obj, 
 	duk_int_t e_idx;
 	duk_uint_t sanity;
 	duk_uint32_t new_array_length = 0;  /* 0 = no update */
+	duk_bool_t throw_flag;
+	duk_bool_t internal_flag;
 
-	DUK_DDD(DUK_DDDPRINT("putprop: thr=%p, obj=%p, key=%p, val=%p, throw=%ld "
+	throw_flag = (flags & DUK_PROP_FLAG_THROW);
+	internal_flag = (flags & DUK_PROP_FLAG_INTERNAL);
+
+	DUK_DDD(DUK_DDDPRINT("putprop: thr=%p, obj=%p, key=%p, val=%p, flags=%lx "
 	                     "(obj -> %!T, key -> %!T, val -> %!T)",
 	                     (void *) thr, (void *) tv_obj, (void *) tv_key, (void *) tv_val,
-	                     (long) throw_flag, (duk_tval *) tv_obj, (duk_tval *) tv_key, (duk_tval *) tv_val));
+	                     (unsigned long) flags, (duk_tval *) tv_obj, (duk_tval *) tv_key, (duk_tval *) tv_val));
 
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT(thr->heap != NULL);
@@ -3348,6 +3392,8 @@ DUK_INTERNAL duk_bool_t duk_hobject_putprop(duk_hthread *thr, duk_tval *tv_obj, 
 				 */
 				arr_idx = duk__push_tval_to_hstring_arr_idx(ctx, tv_key, &key);
 				DUK_ASSERT(key != NULL);
+
+				/* FIXME: internal key check */
 
 				if (duk__get_own_property_desc_raw(thr, h_target, key, arr_idx, &desc, DUK__DESC_FLAG_PUSH_VALUE)) {
 					duk_tval *tv_targ = duk_require_tval(ctx, -1);
@@ -3507,6 +3553,12 @@ DUK_INTERNAL duk_bool_t duk_hobject_putprop(duk_hthread *thr, duk_tval *tv_obj, 
 	DUK_ASSERT(key != NULL);
 
  lookup:
+
+	/* FIXME: this applies to the "front end" of a property lookup */
+	if (DUK_HSTRING_HAS_INTERNAL(key) && !internal_flag) {
+		DUK_DDD(DUK_DDDPRINT("-> internal property, pretend 'undefined' and protected"));
+		goto fail_not_writable;
+	}
 
 	/*
 	 *  Check whether the property already exists in the prototype chain.
@@ -4083,8 +4135,10 @@ DUK_INTERNAL duk_bool_t duk_hobject_delprop_raw(duk_hthread *thr, duk_hobject *o
 	duk_bool_t throw_flag;
 	duk_bool_t force_flag;
 
-	throw_flag = (flags & DUK_DELPROP_FLAG_THROW);
-	force_flag = (flags & DUK_DELPROP_FLAG_FORCE);
+	/* FIXME: this always allows internal property deletion */
+
+	throw_flag = (flags & DUK_PROP_FLAG_THROW);
+	force_flag = (flags & DUK_PROP_FLAG_FORCE);
 
 	DUK_DDD(DUK_DDDPRINT("delprop_raw: thr=%p, obj=%p, key=%p, throw=%ld, force=%ld (obj -> %!O, key -> %!O)",
 	                     (void *) thr, (void *) obj, (void *) key, (long) throw_flag, (long) force_flag,
@@ -4228,7 +4282,7 @@ DUK_INTERNAL duk_bool_t duk_hobject_delprop_raw(duk_hthread *thr, duk_hobject *o
  *  DELPROP: Ecmascript property deletion.
  */
 
-DUK_INTERNAL duk_bool_t duk_hobject_delprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key, duk_bool_t throw_flag) {
+DUK_INTERNAL duk_bool_t duk_hobject_delprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key, duk_small_uint_t flags) {
 	duk_context *ctx = (duk_context *) thr;
 	duk_hstring *key = NULL;
 #if defined(DUK_USE_ES6_PROXY)
@@ -4237,6 +4291,11 @@ DUK_INTERNAL duk_bool_t duk_hobject_delprop(duk_hthread *thr, duk_tval *tv_obj, 
 	duk_int_t entry_top;
 	duk_uint32_t arr_idx = DUK__NO_ARRAY_INDEX;
 	duk_bool_t rc;
+	duk_bool_t throw_flag;
+	duk_bool_t internal_flag;
+
+	throw_flag = (flags & DUK_PROP_FLAG_THROW);
+	internal_flag = (flags & DUK_PROP_FLAG_INTERNAL);
 
 	DUK_DDD(DUK_DDDPRINT("delprop: thr=%p, obj=%p, key=%p (obj -> %!T, key -> %!T)",
 	                     (void *) thr, (void *) tv_obj, (void *) tv_key,
@@ -4269,6 +4328,15 @@ DUK_INTERNAL duk_bool_t duk_hobject_delprop(duk_hthread *thr, duk_tval *tv_obj, 
 		duk_hobject *obj = DUK_TVAL_GET_OBJECT(tv_obj);
 		DUK_ASSERT(obj != NULL);
 
+		arr_idx = duk__push_tval_to_hstring_arr_idx(ctx, tv_key, &key);
+		DUK_ASSERT(key != NULL);
+
+		/* FIXME: this applies to the "front end" of a property lookup */
+		if (DUK_HSTRING_HAS_INTERNAL(key) && !internal_flag) {
+			DUK_DDD(DUK_DDDPRINT("-> internal property, pretend 'undefined' and protected"));
+			goto fail_not_configurable;
+		}
+
 #if defined(DUK_USE_ES6_PROXY)
 		if (DUK_UNLIKELY(DUK_HOBJECT_HAS_EXOTIC_PROXYOBJ(obj))) {
 			duk_hobject *h_target;
@@ -4291,9 +4359,7 @@ DUK_INTERNAL duk_bool_t duk_hobject_delprop(duk_hthread *thr, duk_tval *tv_obj, 
 				/* Target object must be checked for a conflicting
 				 * non-configurable property.
 				 */
-				arr_idx = duk__push_tval_to_hstring_arr_idx(ctx, tv_key, &key);
 				DUK_ASSERT(key != NULL);
-
 				if (duk__get_own_property_desc_raw(thr, h_target, key, arr_idx, &desc, 0 /*flags*/)) {  /* don't push value */
 					int desc_reject;
 
@@ -4317,11 +4383,8 @@ DUK_INTERNAL duk_bool_t duk_hobject_delprop(duk_hthread *thr, duk_tval *tv_obj, 
 		}
 #endif  /* DUK_USE_ES6_PROXY */
 
-		duk_to_string(ctx, -1);
-		key = duk_get_hstring(ctx, -1);
 		DUK_ASSERT(key != NULL);
-
-		rc = duk_hobject_delprop_raw(thr, obj, key, throw_flag ? DUK_DELPROP_FLAG_THROW : 0);
+		rc = duk_hobject_delprop_raw(thr, obj, key, throw_flag ? DUK_PROP_FLAG_THROW : 0);
 		goto done_rc;
 	} else if (DUK_TVAL_IS_STRING(tv_obj)) {
 		/* XXX: unnecessary string coercion for array indices,
@@ -4655,7 +4718,7 @@ DUK_INTERNAL void duk_hobject_set_length(duk_hthread *thr, duk_hobject *obj, duk
 	duk_push_hobject(ctx, obj);
 	duk_push_hstring_stridx(ctx, DUK_STRIDX_LENGTH);
 	duk_push_u32(ctx, length);
-	(void) duk_hobject_putprop(thr, duk_get_tval(ctx, -3), duk_get_tval(ctx, -2), duk_get_tval(ctx, -1), 0);
+	(void) duk_hobject_putprop(thr, duk_get_tval(ctx, -3), duk_get_tval(ctx, -2), duk_get_tval(ctx, -1), 0 /*flags*/);
 	duk_pop_n(ctx, 3);
 }
 
@@ -4668,7 +4731,7 @@ DUK_INTERNAL duk_uint32_t duk_hobject_get_length(duk_hthread *thr, duk_hobject *
 	duk_double_t val;
 	duk_push_hobject(ctx, obj);
 	duk_push_hstring_stridx(ctx, DUK_STRIDX_LENGTH);
-	(void) duk_hobject_getprop(thr, duk_get_tval(ctx, -2), duk_get_tval(ctx, -1));
+	(void) duk_hobject_getprop(thr, duk_get_tval(ctx, -2), duk_get_tval(ctx, -1), 0 /*flags*/);
 	val = duk_to_number(ctx, -1);
 	duk_pop_n(ctx, 3);
 	if (val >= 0.0 && val < DUK_DOUBLE_2TO32) {
@@ -4697,6 +4760,8 @@ DUK_INTERNAL duk_ret_t duk_hobject_object_get_own_property_descriptor(duk_contex
 	obj = duk_require_hobject_or_lfunc_coerce(ctx, 0);
 	(void) duk_to_string(ctx, 1);
 	key = duk_require_hstring(ctx, 1);
+
+	/* FIXME: internal key check */
 
 	DUK_ASSERT(obj != NULL);
 	DUK_ASSERT(key != NULL);
@@ -4939,6 +5004,7 @@ void duk_hobject_define_property_helper(duk_context *ctx,
 	duk_bool_t is_writable;
 	duk_bool_t throw_flag;
 	duk_bool_t force_flag;
+	duk_bool_t internal_flag;
 	duk_small_uint_t new_flags;
 	duk_propdesc curr;
 	duk_uint32_t arridx_new_array_length;  /* != 0 => post-update for array 'length' (used when key is an array index) */
@@ -4968,6 +5034,7 @@ void duk_hobject_define_property_helper(duk_context *ctx,
 	is_configurable = (defprop_flags & DUK_DEFPROP_CONFIGURABLE);
 	throw_flag = 1;   /* Object.defineProperty() calls [[DefineOwnProperty]] with Throw=true */
 	force_flag = (defprop_flags & DUK_DEFPROP_FORCE);
+	internal_flag = force_flag;  /* FIXME: separate flag? */
 
 	arr_idx = DUK_HSTRING_GET_ARRIDX_SLOW(key);
 
@@ -4990,6 +5057,12 @@ void duk_hobject_define_property_helper(duk_context *ctx,
 	                     (long) has_get, (void *) get, (duk_heaphdr *) get,
 	                     (long) has_set, (void *) set, (duk_heaphdr *) set,
 	                     (long) arr_idx));
+
+	/* FIXME: this applies to the "front end" of a property lookup */
+	if (DUK_HSTRING_HAS_INTERNAL(key) && !internal_flag) {
+		DUK_DDD(DUK_DDDPRINT("-> internal property, pretend 'undefined' and protected"));
+		goto fail_not_configurable;
+	}
 
 	/*
 	 *  Array exotic behaviors can be implemented at this point.  The local variables
@@ -5756,6 +5829,8 @@ DUK_INTERNAL duk_bool_t duk_hobject_object_ownprop_helper(duk_context *ctx, duk_
 	/* coercion order matters */
 	h_v = duk_to_hstring(ctx, 0);
 	DUK_ASSERT(h_v != NULL);
+
+	/* FIXME: internal key check */
 
 	h_obj = duk_push_this_coercible_to_object(ctx);
 	DUK_ASSERT(h_obj != NULL);

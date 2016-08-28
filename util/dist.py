@@ -439,8 +439,7 @@ def main():
         'config-options',
         'helper-snippets',
         'header-snippets',
-        'other-defines',
-        'examples'
+        'other-defines'
     ]:
         # Copy directories in their entirety
         if os.path.isfile(os.path.join('config', fn)):

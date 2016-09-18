@@ -1036,7 +1036,25 @@ duk_heap *duk_heap_alloc(duk_alloc_function alloc_func,
 	 */
 
 #if !defined(DUK_USE_GET_RANDOM_DOUBLE)
+#if defined(DUK_USE_PREFER_SIZE) || !defined(DUK_USE_64BIT_OPS)
 	res->rnd_state = (duk_uint32_t) DUK_USE_DATE_GET_NOW((duk_context *) res->heap_thread);
+#else
+	res->rnd_state[0] = (duk_uint64_t) DUK_USE_DATE_GET_NOW((duk_context *) res->heap_thread);
+	res->rnd_state[1] = 0xdeadbeef12345678ULL;  /* ensures state is never all zero */
+#if 0  /* Manual test values matching misc/xoroshiro128plus_test.c. */
+	res->rnd_state[0] = 0xdeadbeef12345678ULL;
+	res->rnd_state[1] = 0xcafed00d12345678ULL;
+#endif
+	do {
+		duk_small_int_t i;
+		for (i = 0; i < 10; i++) {
+			/* Mix state a bit: initial few random values will
+			 * otherwise correlate with the initial datetime.
+			 */
+			(void) duk_util_tinyrandom_get_double(res->heap_thread);
+		}
+	} while (0);
+#endif
 #endif
 
 	/*
